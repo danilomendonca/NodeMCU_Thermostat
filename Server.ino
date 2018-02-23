@@ -3,16 +3,20 @@
 #include <ESP8266WebServer.h>
 #include <Servo.h>
 
+//WI-FI AP
 const char *ssid = "nodemcu_004";
 const char *password = "u004u004";
 
-WiFiUDP Udp;
+//UDP SERVER
 unsigned int localUdpPort = 4210;
 char incomingPacket[255];
 char  replyPacekt[] = "Hi there! Got the message :-)";
+WiFiUDP Udp;
 
+//HTTP SERVER
 ESP8266WebServer server(80);
 
+//STEP MOTOR
 Servo servo;
 
 boolean CMD_MODE = true;
@@ -93,14 +97,21 @@ void handleRoot(){
   response();
 }
 
-void handleHot(){
-  turnOff();
+const short UP_TEMP = 1;
+const short DOWN_TEMP = 0;
+
+void handleHot(){  
+  String voterIP = server.client().remoteIP().toString();  
+  logVote(voterIP, DOWN_TEMP);  
+  consensus();
   response();
 }
 
-void handleCold(){
-  turnOn();
-  response(); 
+void handleCold(){  
+  String voterIP = server.client().remoteIP().toString(); 
+  logVote(voterIP, UP_TEMP);
+  consensus();
+  response();
 }
 
 void handleGetState(){
@@ -108,10 +119,42 @@ void handleGetState(){
   server.send(200, "text/json", "{heater: " + state + "}");
 }
 
-int OFF_ANGLE = 73;
-int ON_ANGLE = 80;
-short OFF_TIME = 8 * 60 * 1000;
-short ON_TIME = 2 * 60 * 1000;
+struct Vote{
+  String IP;
+  short value;
+};
+
+const short MAX_VOTES = 6;
+short voteIndex = 0;
+Vote votes[MAX_VOTES] = {{"", 0}, {"", 0}, {"", 0}, {"", 1}, {"", 1}, {"", 1}};
+
+void logVote(String voterIP, short voteValue){  
+  Vote vote = {voterIP, voteValue};
+  if(voteIndex < MAX_VOTES)
+    voteIndex++;
+  else
+    voteIndex = 0;
+     
+  votes[voteIndex] = vote;
+}
+
+void consensus(){
+  float aggregateVoteValue = 0;
+  for(short i = 0; i < MAX_VOTES; i++){
+    aggregateVoteValue += votes[i].value;
+  }
+  float averageVoteValue = aggregateVoteValue / MAX_VOTES;
+  float majorityOnValue = MAX_VOTES / 2;
+  if(averageVoteValue >= majorityOnValue)
+    turnOn();
+  else
+    turnOff();
+}
+
+const int OFF_ANGLE = 73;
+const int ON_ANGLE = 80;
+const short OFF_TIME = 8 * 60 * 1000;
+const short ON_TIME = 2 * 60 * 1000;
 
 void turnOff(){
   setAngle(OFF_ANGLE);
