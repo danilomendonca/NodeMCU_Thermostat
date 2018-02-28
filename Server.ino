@@ -33,7 +33,7 @@ short voteIndex = 0;
 Vote votes[MAX_VOTES] = {{"", 0}, {"", 0}, {"", 0}, {"", 1}, {"", 1}, {"", 1}};
 
 const int OFF_ANGLE = 71;
-const int ON_ANGLE = 80;
+const int ON_ANGLE = 77;
 const short OFF_TIME = 8 * 60 * 1000;
 const short ON_TIME = 2 * 60 * 1000;
 int currentAngle;
