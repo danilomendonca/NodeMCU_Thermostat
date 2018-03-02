@@ -2,9 +2,17 @@
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
 #include <Servo.h>
+#include "idDHTLib.h"
+
+//DHT Sensor
+#define DHTPIN D4     // what digital pin the DHT22 is conected to
+#define DHTTYPE DHT22   // there are multiple kinds of DHT sensors
+//DHT dht(DHTPIN, DHTTYPE);
+idDHTLib dht(DHTPIN, idDHTLib::DHT22);
 
 //WI-FI AP
-const char *ssid = "nodemcu_004";
+//const char *ssid = "nodemcu_004";
+const char *ssid = "Ufficio_004";
 const char *password = "u004u004";
 
 //UDP SERVER
@@ -28,12 +36,21 @@ struct Vote{
   boolean set;
 };
 
-const short MAX_VOTES = 6;
+const short MAX_VOTES = 8;
 short voteIndex = 0;
-Vote votes[MAX_VOTES] = {{"", 0}, {"", 0}, {"", 0}, {"", 1}, {"", 1}, {"", 1}};
+Vote votes[MAX_VOTES] = {{"", 0}, {"", 0}, {"", 0}, {"", 0}, {"", 1}, {"", 1}, {"", 1}, {"", 1}};
 
-const int OFF_ANGLE = 71;
-const int ON_ANGLE = 80;
+struct LocalClimate{
+  float temperatureCelsius;
+  float humidity;
+  float heatIndex;
+  int timeSinceLastRead;
+};
+
+LocalClimate officeClimate = {0, 0, 0};
+
+const int OFF_ANGLE = 72;
+const int ON_ANGLE = 78;
 const short OFF_TIME = 8 * 60 * 1000;
 const short ON_TIME = 2 * 60 * 1000;
 int currentAngle;
@@ -41,10 +58,19 @@ int currentAngle;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
-  Serial.println("");
+  Serial.setTimeout(2000);
 
-  WiFi.mode(WIFI_AP); 
-  WiFi.softAP(ssid, password);
+  // Wait for serial to initialize.
+  while(!Serial) { }
+
+  //WiFi.mode(WIFI_AP); 
+  //WiFi.softAP(ssid, password);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { //Wait for connection
+    delay(500);
+    Serial.println("Waiting to connect…");
+  }
 
   IPAddress myIP = WiFi.softAPIP(); //Get IP address
   Serial.print("HotSpt IP:");
@@ -67,8 +93,12 @@ void setup() {
   
 }
 
+const int LOOP_INTERVAL = 1000;
+
 void loop() {
-  // put your main code here, to run repeatedly:
+
+  readTemperature();
+  
   if(CMD_MODE){
     checkUDP(); //check for UDP messages
     checkHTTP(); //check for HTTP requests
@@ -76,9 +106,44 @@ void loop() {
     stayOn(); //stays on for 2 min
     stayOff(); //stays off for 8 min
   }
-  delay(1000);
+  delay(LOOP_INTERVAL);
+  officeClimate.timeSinceLastRead += LOOP_INTERVAL;
 }
 
+const short READ_INTERVAL = 5000;
+
+void readTemperature(){
+  // Report every 2 seconds
+  if(officeClimate.timeSinceLastRead > READ_INTERVAL) {
+    int result = dht.acquireAndWait();
+    if (result == IDDHTLIB_OK) {
+      // Reading temperature or humidity takes about 250 milliseconds!
+      // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+      //float h = dht.readHumidity();
+      float h = dht.getHumidity();
+      // Read temperature as Celsius (the default)
+      //float t = dht.readTemperature();
+      float t = dht.getCelsius();
+      
+      // Check if any reads failed and exit early (to try again).
+      if (isnan(h) || isnan(t)) {
+        Serial.println("Failed to read from DHT sensor!");
+        officeClimate.timeSinceLastRead = 0;
+        return;
+      }
+  
+      // Compute heat index in Celsius (isFahreheit = false)
+      //float hic = dht.computeHeatIndex(t, h, false);
+      float hic = dht.getDewPoint();
+  
+      officeClimate.humidity = h;
+      officeClimate.temperatureCelsius = t;
+      officeClimate.heatIndex = hic;
+    }else{
+      Serial.println("Failed to read from DHT sensor!");
+    }
+  }
+}
 
 const String coldColor = "#4232b5";
 const String hotColor = "#d82f2f";
@@ -108,13 +173,23 @@ String HtmlVotes(){
       String voteIP = "<td>IP: " + vote.IP + "</td>";
       String voteValue = "<td> voted " + getVoteFromValue(vote.value) + "</td>";
       html += "<tr>" + voteIP + voteValue;
-      if(voteIndex == i)
+      /*if(voteIndex == i)
         html += " <td><span stype=\"font-size: 1.4em;\">&larr; last vote</span></td>";
       else
-        html += "<td/><td>";
+        html += "<td/><td>";*/
       html += "<tr/>";
     }    
   }
+  html += "</table><br/><br/>";
+  return html;
+}
+
+String HtmlClimate(){
+
+  String html = "<table style=\"margin: 0 auto\">";
+  html += "<tr><td>Current Temperature:</td><td>" + String(officeClimate.temperatureCelsius) + "</td></tr>";
+  html += "<tr><td>Current Humidity:</td><td>" + String(officeClimate.humidity) + "</td></tr>";
+  html += "<tr><td>Current Heat Index:</td><td>" + String(officeClimate.heatIndex) + "</td></tr>";
   html += "</table>";
   return html;
 }
@@ -144,6 +219,7 @@ void response(){
   htmlRes += HtmlVotes();  
   htmlRes += HtmlBodyClose;
   htmlRes += HtmlHtmlClose;
+  htmlRes += HtmlClimate();
 
   server.send(200, "text/html", htmlRes);
 }
@@ -206,14 +282,24 @@ void checkUDP(){
   }
 }
 
-void logVote(String voterIP, short voteValue){  
-  Vote vote = {voterIP, voteValue, true};
+void rotateVotes(){  
+  for(short i = 1; i < MAX_VOTES; i++){    
+    votes[i - 1] = votes[i];
+  }
+}
+
+void nextVoteIndex(){
   if(voteIndex + 1 < MAX_VOTES)
     voteIndex++;
   else
     voteIndex = 0;
-     
-  votes[voteIndex] = vote;
+}
+
+void logVote(String voterIP, short voteValue){  
+  Vote vote = {voterIP, voteValue, true};
+  //short voteIndex = nextVoteIndex();   
+  rotateVotes();
+  votes[MAX_VOTES - 1] = vote;
 }
 
 short consensus(){
@@ -259,7 +345,7 @@ void stayOn(){
   delay(ON_TIME);
 }
 
-const short AFTER_CHANGE_DELAY = 250;
+const short AFTER_CHANGE_DELAY = 150;
 const short MIN_ANGLE = 0;
 const short MAX_ANGLE = 180;
 
