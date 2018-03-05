@@ -81,6 +81,7 @@ void setup() {
 
   server.on("/", handleRoot);
   server.on("/heater", handleGetState);
+  server.on("/climate", handleGetClimate);
   server.on("/fafreddo", handleCold);
   server.on("/facaldo", handleHot);  
   server.begin();
@@ -249,6 +250,18 @@ void handleCold(){
 void handleGetState(){
   String state = STATE ? "on" : "off";
   server.send(200, "text/json", "{heater: " + state + "}");
+}
+
+void handleGetClimate(){
+  String temperatureCelsiusString = String(officeClimate.temperatureCelsius);
+  String humidityString = String(officeClimate.humidity);
+  String heatIndexString = String(officeClimate.heatIndex);
+  String response = "{"
+                      "{temperatureCelsius: " + temperatureCelsiusString + "}"
+                      "{humidity: " + humidityString + "}"
+                      "{heatIndex: " + heatIndexString + "}"
+                    "}";
+  server.send(200, "text/json", response);
 }
 
 void checkHTTP(){
