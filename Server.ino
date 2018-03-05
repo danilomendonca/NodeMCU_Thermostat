@@ -2,6 +2,7 @@
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
 #include <Servo.h>
+
 #include "idDHTLib.h"
 
 //DHT Sensor
@@ -206,7 +207,7 @@ String HtmlConsensus(){
   return "";
 }
 
-void response(){
+void responseHTML(){
   String htmlRes = HtmlHtml + HtmlBody + HtmlTitle;
   if(STATE == OFF){
     htmlRes += HtmlLedStateLow;
@@ -226,25 +227,41 @@ void response(){
 }
 
 void handleRoot(){
-  response();
+  responseHTML();
 }
 
 const short UP_TEMP = 1;
 const short DOWN_TEMP = 0;
+
+const String HTML_REQUEST = "text/html";
+const String JSON_REQUEST = "application/json";
+
+String getRequestType(){  
+  if(server.header("Accept").indexOf(JSON_REQUEST) > 0)
+    return JSON_REQUEST;
+  else
+    return HTML_REQUEST;  
+}
 
 void handleHot(){  
   String voterIP = server.client().remoteIP().toString();
   //long timeStamp = server.arg(“timeStamp”);
   logVote(voterIP, DOWN_TEMP);  
   checkConsensus();
-  response();
+  if(getRequestType() == HTML_REQUEST)
+    responseHTML();
+  else
+    server.send(200, "text/json", "viva la democrazia");
 }
 
 void handleCold(){  
   String voterIP = server.client().remoteIP().toString(); 
   logVote(voterIP, UP_TEMP);
   checkConsensus();
-  response();
+  if(getRequestType() == HTML_REQUEST)
+    responseHTML();
+  else
+    server.send(200, "text/json", "viva la democrazia");
 }
 
 void handleGetState(){
@@ -261,6 +278,7 @@ void handleGetClimate(){
                       "{humidity: " + humidityString + "}"
                       "{heatIndex: " + heatIndexString + "}"
                     "}";
+  
   server.send(200, "text/json", response);
 }
 
@@ -301,18 +319,23 @@ void rotateVotes(){
   }
 }
 
-void nextVoteIndex(){
-  if(voteIndex + 1 < MAX_VOTES)
-    voteIndex++;
-  else
-    voteIndex = 0;
+short findPreviousVote(String voterIP){
+  for(short i = 0; i < MAX_VOTES; i++){
+    if(votes[i].IP.equals(voterIP))
+      return i;
+  }
+  return -1;
 }
 
 void logVote(String voterIP, short voteValue){  
   Vote vote = {voterIP, voteValue, true};
-  //short voteIndex = nextVoteIndex();   
-  rotateVotes();
-  votes[MAX_VOTES - 1] = vote;
+  short previousVoteIndex = findPreviousVote(voterIP);
+  short currentVoteIndex = MAX_VOTES - 1;
+  if(previousVoteIndex == -1)
+    rotateVotes();    
+  else
+    currentVoteIndex = previousVoteIndex;
+  votes[currentVoteIndex] = vote;      
 }
 
 short consensus(){
