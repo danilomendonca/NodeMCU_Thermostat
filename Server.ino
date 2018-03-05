@@ -49,13 +49,8 @@ struct LocalClimate{
 
 LocalClimate officeClimate = {0, 0, 0};
 
-<<<<<<< HEAD
-const int OFF_ANGLE = 72;
-const int ON_ANGLE = 78;
-=======
 const int OFF_ANGLE = 71;
 const int ON_ANGLE = 77;
->>>>>>> c9f03aedfae72daf901d791c2632b209413e1724
 const short OFF_TIME = 8 * 60 * 1000;
 const short ON_TIME = 2 * 60 * 1000;
 int currentAngle;
