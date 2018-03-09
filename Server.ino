@@ -34,12 +34,19 @@ boolean STATE = OFF;
 struct Vote{
   String IP;
   short value;
+  long timeStamp;
   boolean set;
+  long getVoteAge() const{
+    return millis() - timeStamp;
+  }
+  short getVoteAgeInMinutes() const{
+    return getVoteAge() / (1000 * 60);
+  }
 };
 
 const short MAX_VOTES = 8;
 short voteIndex = 0;
-Vote votes[MAX_VOTES] = {{"", 0}, {"", 0}, {"", 0}, {"", 0}, {"", 1}, {"", 1}, {"", 1}, {"", 1}};
+Vote votes[MAX_VOTES] = {{"", 0, 0}, {"", 0, 0}, {"", 0, 0}, {"", 0, 0}, {"", 1, 0}, {"", 1, 0}, {"", 1, 0}, {"", 1, 0}};
 
 struct LocalClimate{
   float temperatureCelsius;
@@ -172,18 +179,23 @@ String HtmlVotes(){
   for(int i = 0; i < MAX_VOTES; i++){
     Vote vote = votes[i];
     if(vote.set){
+      html += "<tr>"; 
       String voteIP = "<td>IP: " + vote.IP + "</td>";
-      String voteValue = "<td> voted " + getVoteFromValue(vote.value) + "</td>";
-      html += "<tr>" + voteIP + voteValue;
-      /*if(voteIndex == i)
-        html += " <td><span stype=\"font-size: 1.4em;\">&larr; last vote</span></td>";
-      else
-        html += "<td/><td>";*/
+      String voteValue = "<td> voted " + HtmlVoteValue(vote.value) + "</td>";      
+      String voteAge = "<td> " + String(vote.getVoteAgeInMinutes()) + " minutes ago</td>";
+      html += voteIP + voteValue + voteAge;   
       html += "<tr/>";
     }    
   }
   html += "</table><br/><br/>";
   return html;
+}
+
+String HtmlVoteValue(short value){
+  if(value)
+    return "<b style=\"color: " + coldColor + "\">FA FREDDO</b>";
+  else
+    return "<b style=\"color: " + hotColor + "\">FA CALDO</b>";
 }
 
 String HtmlClimate(){
@@ -194,13 +206,6 @@ String HtmlClimate(){
   html += "<tr><td>Current Heat Index:</td><td>" + String(officeClimate.heatIndex) + "</td></tr>";
   html += "</table>";
   return html;
-}
-
-String getVoteFromValue(short value){
-  if(value)
-    return "<b style=\"color: " + coldColor + "\">FA FREDDO</b>";
-  else
-    return "<b style=\"color: " + hotColor + "\">FA CALDO</b>";
 }
 
 String HtmlConsensus(){
@@ -246,7 +251,7 @@ String getRequestType(){
 void handleHot(){  
   String voterIP = server.client().remoteIP().toString();
   //long timeStamp = server.arg(“timeStamp”);
-  logVote(voterIP, DOWN_TEMP);  
+  logVote(voterIP, DOWN_TEMP);
   checkConsensus();
   if(getRequestType() == HTML_REQUEST)
     responseHTML();
@@ -328,7 +333,7 @@ short findPreviousVote(String voterIP){
 }
 
 void logVote(String voterIP, short voteValue){  
-  Vote vote = {voterIP, voteValue, true};
+  Vote vote = {voterIP, voteValue, millis(), true};
   short previousVoteIndex = findPreviousVote(voterIP);
   short currentVoteIndex = MAX_VOTES - 1;
   if(previousVoteIndex == -1)
@@ -338,11 +343,13 @@ void logVote(String voterIP, short voteValue){
   votes[currentVoteIndex] = vote;      
 }
 
+const long MAX_VOTE_AGE = 1 * 60 * 60 * 1000;
+
 short consensus(){
   float aggregateVoteValue = 0;
   float totalVotes = 0;
   for(short i = 0; i < MAX_VOTES; i++){
-    if(votes[i].set){
+    if(votes[i].set && votes[i].getVoteAge() <= MAX_VOTE_AGE){
       totalVotes++;
       aggregateVoteValue += votes[i].value;
     }
