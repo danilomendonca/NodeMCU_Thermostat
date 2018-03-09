@@ -36,6 +36,7 @@ struct Vote{
   short value;
   long timeStamp;
   boolean set;
+  String name;
   long getVoteAge() const{
     return millis() - timeStamp;
   }
@@ -167,11 +168,40 @@ const String HtmlTitle = "<h1>DEEP-SE WEB THERMOSTAT UFFICIO P3/004</h1>\n";
 const String HtmlLedStateLow = "<big>HEATER is now <b style=\"color: " + coldColor + "\">OFF</b></big><br/><br/><br/>\n";
 const String HtmlLedStateHigh = "<big>HEATER is now <b style=\"color: " + hotColor + "\">ON</b></big><br/><br/><br/>\n";
 const String HtmlButtons = 
-    "<a href=\"fafreddo\"><button style=\"display: inline-block; height: 2em; width: 30%;\">TURN IT ON</button></a>"
-    "<a href=\"facaldo\"><button style=\"display: inline-block; height: 2em; width: 30%;\">TURN IT OFF</button></a>"
+    "<a href=\"fafreddo\" onclick=\"appendNameAndNavigate(this.href); return false;\"><button style=\"display: inline-block; height: 2em; width: 30%;\">TURN IT ON</button></a>"
+    "<a href=\"facaldo\" onclick=\"appendNameAndNavigate(this.href); return false;\"><button style=\"display: inline-block; height: 2em; width: 30%;\">TURN IT OFF</button></a>"
     "<br/><br/><br/>";
 const String HtmlColdButton = "<a href=\"fafreddo\" style=\"display: inline-block; margin: 50px;\"><img style=\"width: 100px; height: auto\" src=\"http://icons.iconarchive.com/icons/aha-soft/standard-new-year/256/Snowflake-icon.png\" alt=\"Fa Freddo\"/></a>";
 const String HtmlHotButton = "<a href=\"facaldo\" style=\"display: inline-block; margin: 50px;\"><img style=\"width: 100px; height: auto\" src=\"http://icons.iconarchive.com/icons/custom-icon-design/flatastic-4/512/Hot-icon.png\" alt=\"Fa Caldo\"/></a>";
+
+String PageJSScript(){
+
+  String jsScript = "<script>"  
+  "let personName = \"\";"  
+  "function getName(){"
+    "if (typeof(Storage) !== \"undefined\" && localStorage.personName !== \"undefined\"){"
+        "personName = localStorage.personName;"
+    "}"
+    "if (personName == null || personName == \"\") {"
+        "personName = prompt(\"Please enter your name\", \"\");"
+    "}"    
+  "}"
+  "function persistName(){"
+    "if (personName != null && personName != \"\") {"
+        "localStorage.personName = personName;"        
+    "}"    
+  "}"
+  "function appendNameAndNavigate(url){"
+    "getName();"
+    "persistName();"
+    "if (url != null && personName != null && personName != \"\") {"
+        "url += \"?name=\" + personName;"
+    "}"
+    "window.location.href = url;"
+  "}"
+  "</script>";
+  return jsScript;
+}
 
 String HtmlVotes(){
 
@@ -180,7 +210,7 @@ String HtmlVotes(){
     Vote vote = votes[i];
     if(vote.set){
       html += "<tr>"; 
-      String voteIP = "<td>IP: " + vote.IP + "</td>";
+      String voteIP = "<td>IP: " + vote.IP + " " + HtmlVoteName(vote.name) + "</td>";
       String voteValue = "<td> voted " + HtmlVoteValue(vote.value) + "</td>";      
       String voteAge = "<td> " + String(vote.getVoteAgeInMinutes()) + " minutes ago</td>";
       html += voteIP + voteValue + voteAge;   
@@ -196,6 +226,13 @@ String HtmlVoteValue(short value){
     return "<b style=\"color: " + coldColor + "\">FA FREDDO</b>";
   else
     return "<b style=\"color: " + hotColor + "\">FA CALDO</b>";
+}
+
+String HtmlVoteName(String name){
+  if(name.length() > 0)
+    return "(" + name + ")";
+  else
+    return "";
 }
 
 String HtmlClimate(){
@@ -224,9 +261,10 @@ void responseHTML(){
   //htmlRes += HtmlColdButton;
   //htmlRes += HtmlHotButton;
   htmlRes += HtmlVotes();  
-  htmlRes += HtmlBodyClose;
-  htmlRes += HtmlHtmlClose;
+  htmlRes += HtmlBodyClose;  
   htmlRes += HtmlClimate();
+  htmlRes += PageJSScript();
+  htmlRes += HtmlHtmlClose;
 
   server.send(200, "text/html", htmlRes);
 }
@@ -250,8 +288,8 @@ String getRequestType(){
 
 void handleHot(){  
   String voterIP = server.client().remoteIP().toString();
-  //long timeStamp = server.arg(“timeStamp”);
-  logVote(voterIP, DOWN_TEMP);
+  String name = getArgName();
+  logVote(voterIP, DOWN_TEMP, name);
   checkConsensus();
   if(getRequestType() == HTML_REQUEST)
     responseHTML();
@@ -261,12 +299,20 @@ void handleHot(){
 
 void handleCold(){  
   String voterIP = server.client().remoteIP().toString(); 
-  logVote(voterIP, UP_TEMP);
+  String name = getArgName();
+  logVote(voterIP, UP_TEMP, name);
   checkConsensus();
   if(getRequestType() == HTML_REQUEST)
     responseHTML();
   else
     server.send(200, "text/json", "viva la democrazia");
+}
+
+String getArgName(){
+  if(server.arg("name") != "")
+    return server.arg("name");
+  else
+    return "";
 }
 
 void handleGetState(){
@@ -332,15 +378,15 @@ short findPreviousVote(String voterIP){
   return -1;
 }
 
-void logVote(String voterIP, short voteValue){  
-  Vote vote = {voterIP, voteValue, millis(), true};
+void logVote(String voterIP, short voteValue, String name){  
+  Vote vote = {voterIP, voteValue, millis(), true, name};
   short previousVoteIndex = findPreviousVote(voterIP);
   short currentVoteIndex = MAX_VOTES - 1;
   if(previousVoteIndex == -1)
     rotateVotes();    
   else
     currentVoteIndex = previousVoteIndex;
-  votes[currentVoteIndex] = vote;      
+  votes[currentVoteIndex] = vote;
 }
 
 const long MAX_VOTE_AGE = 1 * 60 * 60 * 1000;
