@@ -31,6 +31,8 @@ const boolean ON = true;
 const boolean OFF = false;
 boolean STATE = OFF;
 
+const long MAX_VOTE_AGE = 1 * 60 * 60 * 1000;
+
 struct Vote{
   String IP;
   short value;
@@ -42,6 +44,9 @@ struct Vote{
   }
   short getVoteAgeInMinutes() const{
     return getVoteAge() / (1000 * 60);
+  }
+  boolean isExpired(){
+    return getVoteAge() > MAX_VOTE_AGE;
   }
 };
 
@@ -93,6 +98,11 @@ void setup() {
   server.on("/climate", handleGetClimate);
   server.on("/fafreddo", handleCold);
   server.on("/facaldo", handleHot);  
+  //here the list of headers to be recorded
+  const char * headerkeys[] = {"User-Agent","Accept"} ;
+  size_t headerkeyssize = sizeof(headerkeys)/sizeof(char*);
+  //ask server to track these headers
+  server.collectHeaders(headerkeys, headerkeyssize );
   server.begin();
   Serial.println("HTTP server beginned");
 
@@ -197,7 +207,12 @@ String PageJSScript(){
     "if (url != null && personName != null && personName != \"\") {"
         "url += \"?name=\" + personName;"
     "}"
-    "window.location.href = url;"
+    "asyncRequest(url);"    
+    "window.location.href = '/';"
+  "}"
+  "function asyncRequest(url){"
+    "xhttp.open(\"GET\", url, true);"
+    "xhttp.send();"
   "}"
   "</script>";
   return jsScript;
@@ -209,7 +224,7 @@ String HtmlVotes(){
   for(int i = 0; i < MAX_VOTES; i++){
     Vote vote = votes[i];
     if(vote.set){
-      html += "<tr>"; 
+      html += "<tr " + getVoteStyle(vote.isExpired()) + ">"; 
       String voteIP = "<td>IP: " + vote.IP + " " + HtmlVoteName(vote.name) + "</td>";
       String voteValue = "<td> voted " + HtmlVoteValue(vote.value) + "</td>";      
       String voteAge = "<td> " + String(vote.getVoteAgeInMinutes()) + " minutes ago</td>";
@@ -219,6 +234,13 @@ String HtmlVotes(){
   }
   html += "</table><br/><br/>";
   return html;
+}
+
+String getVoteStyle(boolean expired){
+  if(expired)
+    return "style=\"text-decoration: line-through;\"";
+  else
+    return "";
 }
 
 String HtmlVoteValue(short value){
@@ -280,32 +302,47 @@ const String HTML_REQUEST = "text/html";
 const String JSON_REQUEST = "application/json";
 
 String getRequestType(){  
-  if(server.header("Accept").indexOf(JSON_REQUEST) > 0)
-    return JSON_REQUEST;
+  //Serial.printf("Accept: %s", server.header("Accept").c_str());  
+  if(server.header("Accept").indexOf(HTML_REQUEST) >= 0)
+    return HTML_REQUEST;
   else
-    return HTML_REQUEST;  
+    return JSON_REQUEST;
 }
 
-void handleHot(){  
+boolean validateRequest(){
   String voterIP = server.client().remoteIP().toString();
-  String name = getArgName();
-  logVote(voterIP, DOWN_TEMP, name);
-  checkConsensus();
-  if(getRequestType() == HTML_REQUEST)
-    responseHTML();
+  if(voterIP.equals("") || voterIP.equals("0.0.0.0"))
+    return false;  
   else
-    server.send(200, "text/json", "viva la democrazia");
+    return true;
+}
+
+void handleHot(){
+  if(validateRequest()){
+    String voterIP = server.client().remoteIP().toString();
+    String name = getArgName();
+    logVote(voterIP, DOWN_TEMP, name);
+    checkConsensus();
+    if(getRequestType() == HTML_REQUEST)
+      responseHTML();
+    else
+      server.send(200, "text/json", "You voted 'fa caldo'. Viva la democrazia!");
+  }else
+    responseHTML();
 }
 
 void handleCold(){  
-  String voterIP = server.client().remoteIP().toString(); 
-  String name = getArgName();
-  logVote(voterIP, UP_TEMP, name);
-  checkConsensus();
-  if(getRequestType() == HTML_REQUEST)
+  if(validateRequest()){
+    String voterIP = server.client().remoteIP().toString(); 
+    String name = getArgName();
+    logVote(voterIP, UP_TEMP, name);
+    checkConsensus();
+    if(getRequestType() == HTML_REQUEST)
+      responseHTML();
+    else
+      server.send(200, "text/json", "You voted 'fa freddo'. Viva la democrazia!");
+  }else
     responseHTML();
-  else
-    server.send(200, "text/json", "viva la democrazia");
 }
 
 String getArgName(){
@@ -378,7 +415,7 @@ short findPreviousVote(String voterIP){
   return -1;
 }
 
-void logVote(String voterIP, short voteValue, String name){  
+void logVote(String voterIP, short voteValue, String name){    
   Vote vote = {voterIP, voteValue, millis(), true, name};
   short previousVoteIndex = findPreviousVote(voterIP);
   short currentVoteIndex = MAX_VOTES - 1;
@@ -386,16 +423,14 @@ void logVote(String voterIP, short voteValue, String name){
     rotateVotes();    
   else
     currentVoteIndex = previousVoteIndex;
-  votes[currentVoteIndex] = vote;
+  votes[currentVoteIndex] = vote;  
 }
-
-const long MAX_VOTE_AGE = 1 * 60 * 60 * 1000;
 
 short consensus(){
   float aggregateVoteValue = 0;
   float totalVotes = 0;
   for(short i = 0; i < MAX_VOTES; i++){
-    if(votes[i].set && votes[i].getVoteAge() <= MAX_VOTE_AGE){
+    if(votes[i].set && votes[i].isExpired()){
       totalVotes++;
       aggregateVoteValue += votes[i].value;
     }
